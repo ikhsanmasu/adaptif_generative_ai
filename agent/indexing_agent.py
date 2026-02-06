@@ -95,7 +95,7 @@ def audit_chunk(self, tenant:str, doc_id:str, chunk_idx:int, addtional_prompt:st
 
     logger.info(f"auditing {current_chunk_id}")
     audit = False
-    for id in [*range(chunk_idx), chunk_idx+1]:
+    for id in [*range(chunk_idx, 0, -1), chunk_idx+1]:
         targeted_chunk = get_point_sync(chunk_id=current_chunk_id, collection_name=collection_name)
         targeted_chunk_payload = targeted_chunk[0].payload
         targeted_original_chunk_text = targeted_chunk_payload.get("original_text", "")
@@ -147,6 +147,7 @@ def audit_chunk(self, tenant:str, doc_id:str, chunk_idx:int, addtional_prompt:st
                     "chunk_id": f"{current_chunk_id}",
                     "tenant": tenant,
                     "doc_id": doc_id,
+                    "index": chunk_idx,
                     "title": targeted_chunk_payload.get("title", ""),
                     "text": targeted_chunk_payload.get("text", ""),
                     "original_text": targeted_chunk_payload.get("original_text", ""),
@@ -172,6 +173,7 @@ def audit_chunk(self, tenant:str, doc_id:str, chunk_idx:int, addtional_prompt:st
                     "chunk_id": f"{current_chunk_id}",
                     "tenant": tenant,
                     "doc_id": doc_id,
+                    "index": chunk_idx,
                     "title": targeted_chunk_payload.get("title", ""),
                     "text": f"{targeted_chunk_payload.get('audited_text', '')}\n{targeted_chunk_payload['original_text']}",
                     "original_text": targeted_chunk_payload.get("original_text", ""),
@@ -191,7 +193,11 @@ RITRIVAL_EVALUATION_SYSTEM_PROMPT = """
 only return JSON formatted response not markdown no extra text.
 
 only respond with the following JSON formats:
-{"audit": "True|False", "additional_prompt": "...", "chunk_ids": [...], "reasoning": "..."}
+{"audit": "True|False", "additional_prompt": "...", "audit_agent_args": [{...}, {...}], "reasoning": "..."}
+
+audit_agent_args is the list of arguments to be sent to audit agent for each chunk that need to be audited
+format audit_agent_args:
+{"tenant": "...", "doc_id": "...", "chunk_idx": ...}
 
 set audit to true if need to be audited or false to keep current text
 additional_prompt is the instruction sent to audit agent to improve the chunk context
@@ -218,18 +224,17 @@ Ritrived Document:
 """
 
 @celery_app.task(name="evaluate_chunk", bind=True)
-def background_evaluation_agent(self, question:str, document:List[dict], tenant:str, doc_id:str):
+def background_evaluation_agent(self, question:str, documents:List[dict]):
     """
     This agent will evaluate every ritrived chunks to add more context to original text chunk
     """
+    logger.info("Starting evaluation of ritrived documents")
 
     system_prompt = prompt_template(RITRIVAL_EVALUATION_SYSTEM_PROMPT, {})
 
-    logger.info(f"evaluating {current_chunk_id}")
-    audit = False
     agent_prompt = prompt_template(RITRIVAL_EVALUATION_PROMPT, {
         "question": question,
-        "ritrived_document": get_point_sync(chunk_id=current_chunk_id, collection_name=collection_name)[0].payload.get("original_text", "") 
+        "ritrived_document": documents
     })
 
     message = [{
@@ -247,10 +252,11 @@ def background_evaluation_agent(self, question:str, document:List[dict], tenant:
     logger.info("action: %s", action)
 
     if action["audit"] in ['True', 1, "true"]:
-        for chunk_idx in action["chunk_ids"]:
-            current_chunk_id = f"{tenant}:{doc_id}:{chunk_idx}"
-            collection_name = f"tenants_{tenant}_documents"
-            audit_chunk().delay(tenant=tenant, doc_id=doc_id, chunk_idx=chunk_idx, addtional_prompt=action.get("additional_prompt", ""))
+        for chunk_args in action["audit_agent_args"]:
+            try:
+                audit_chunk().delay(**chunk_args)
+            except Exception as e:
+                logger.error(f"Error scheduling audit chunk for {chunk_args['chunk_idx']}: {e}")
 
         logger.info("Evaluation chunk audit sent to audit agent")
     else:

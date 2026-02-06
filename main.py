@@ -4,7 +4,7 @@ from documents import documents_router
 import logging
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(levelname)s:     %(asctime)s - %(name)s - %(message)s"
 )
 

@@ -16,28 +16,43 @@ async_qdrant_client = AsyncQdrantClient(QDRANT_HOST, port=QDRANT_PORT)
 
 logger = logging.getLogger(__name__)
 
+
+
+
+
 async def search_documents(query, tenant:str, limit:int = 2) -> str:
-    query_vector = embed_text(query)
-    collection_name = f"tenants_{tenant}_documents"
+    try:
+        query_vector = embed_text(query)
+        collection_name = f"tenants_{tenant}_documents"
 
-    search_result = await async_qdrant_client.query_points(
-        collection_name=collection_name,
-        query=query_vector,
-        with_payload=True,
-        limit= limit
-    )
+        search_result = await async_qdrant_client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            with_payload=True,
+            limit= limit
+        )
 
-    documents = []
-    for point in search_result.points:
-        payload = point.payload
-        documents.append({
-            "document_id": point.id,
-            "title": payload['title'],
-            "text": payload['text'],
-            "score": point.score
-        })
-            
-    return search_result
+        documents = []
+
+        logger.debug(f"Qdrant search results: {search_result}")
+
+        for point in search_result.points:
+            payload = point.payload
+            documents.append({
+                "chunk_id": payload['chunk_id'],
+                "tenant": payload['tenant'],
+                "doc_id": payload['doc_id'],
+                "index": payload['index'],
+                "title": payload['title'],
+                "text": payload['text'],
+                "score": point.score
+            })
+        
+        logger.debug(f"Document results: {documents}")
+        return documents
+    except Exception as e:
+        logger.error(f"Error during search_documents: {e}")
+        return []
 
 async def add_document(tenant:str, doc_id:str, title:str, chunks:list[str]):
     collection_name = f"tenants_{tenant}_documents"
@@ -51,6 +66,7 @@ async def add_document(tenant:str, doc_id:str, title:str, chunks:list[str]):
                 "chunk_id": f"{tenant}:{doc_id}:{idx}",
                 "tenant": tenant,
                 "doc_id": doc_id,
+                "index": idx,
                 "title": title,
                 "text": chunk,
                 "original_text": chunk,
@@ -114,29 +130,38 @@ async def get_point(chunk_id:str, collection_name:str) -> models.PointStruct | N
 sync_qdrant_client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT)
 
 def search_documents_sync(query, tenant:str, limit:int = 2) -> str:
-    query_vector = embed_text(query)
-    collection_name = f"tenants_{tenant}_documents"
+    try:
+        query_vector = embed_text(query)
+        collection_name = f"tenants_{tenant}_documents"
 
-    search_result = sync_qdrant_client.query_points(
-        collection_name=collection_name,
-        query=query_vector,
-        with_payload=True,
-        limit= limit
-    )
+        search_result = sync_qdrant_client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            with_payload=True,
+            limit= limit
+        )
 
-    documents = []
-    for point in search_result.points:
-        payload = point.payload
-        documents.append({
-            "document_id": point.id,
-            "tenant": payload['tenant'],
-            "doc_id": payload['doc_id'],
-            "title": payload['title'],
-            "text": payload['text'],
-            "score": point.score
-        })
-            
-    return search_result
+        documents = []
+
+        logger.debug(f"Qdrant search results: {search_result}")
+
+        for point in search_result.points:
+            payload = point.payload
+            documents.append({
+                "chunk_id": payload['chunk_id'],
+                "tenant": payload['tenant'],
+                "doc_id": payload['doc_id'],
+                "index": payload['index'],
+                "title": payload['title'],
+                "text": payload['text'],
+                "score": point.score
+            })
+        
+        logger.debug(f"Document results: {documents}")
+        return documents
+    except Exception as e:
+        logger.error(f"Error during search_documents: {e}")
+        return []
 
 def add_document_sync(tenant:str, doc_id:str, title:str, chunks:list[str]):
     collection_name = f"tenants_{tenant}_documents"
@@ -150,6 +175,7 @@ def add_document_sync(tenant:str, doc_id:str, title:str, chunks:list[str]):
                 "chunk_id": f"{tenant}:{doc_id}:{idx}",
                 "tenant": tenant,
                 "doc_id": doc_id,
+                "index": idx,
                 "title": title,
                 "text": chunk,
                 "original_text": chunk,

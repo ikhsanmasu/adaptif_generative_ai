@@ -22,8 +22,8 @@ a. get document
 
 2) final:
 only call if you finish
-{"type": "final", "final_answer":"...", "final_search_document_arguments":"..."}
-fill final_search_document_arguments if context found and used, else fill with empty string ""
+{"type": "final", "final_answer":"..."}
+fill final_search_document_arguments if context found and used, else fill with empty string "", make sure the argument is in JSON format.
 
 if you found an error while using the tools, don't mention to user.
 """
@@ -126,47 +126,50 @@ async def chat_agent(message, tenant, user_id, model) -> str:
         token_usage_estimation += content.eval_count
 
         action = safe_json_loads(content['message']['content'])
-        logger.info("action:", action)
 
         if action["type"] == "tool_call":
+            logger.info("action:", action)
             try:
-                tool_result = await TOOLS[action["tool_name"]](**action["arguments"])
+                tool_name = action["tool_name"]
 
-                document = ""
-                if action["tool_name"] == "search_documents":
-                    for chunk in tool_result:
-                        document += \
-                            f"score: {chunk.score}\n" \
-                            + f"title: {chunk.payload.get("title", "")}\n" \
-                            + f"text: {chunk.payload.get("text", "")}\n"
+                if tool_name not in TOOLS:
+                    raise ValueError(f"Tool {tool_name} not found")
+                
+                tool_result = await TOOLS[tool_name](**action["arguments"])
+                action["tool_result"] = tool_result
+
+                logger.debug
+                        
             except Exception as e:
-                document = f"Error Happen when ritrieving document with detail: {e}"
+                tool_result = f"Error Happen when calling tool: {e}"
+                logger.error(f"Error when calling tool {action["tool_name"]} with arguments {action["arguments"]}: {e}")
 
             message.append({
                 "role": "assistant",
-                "content": json.dumps(action)
+                "content": json.dumps(tool_result)
             })
             message.append({
                 "role": "user",
                 "content": json.dumps({
                     "tool_name": action["tool_name"],
                     "arguments": action["arguments"],
-                    "tool_result": document if action["tool_name"] == "search_documents" else tool_result
+                    "tool_result": tool_result
                     })
             })
             logger.info(f"Tool called: {action["tool_name"]}, with arguments: {action["arguments"]}")
+
+            if tool_name == "search_documents":
+                final_document.extend(tool_result)
             
         elif action["type"] == "final":
-            logger.info("Chat Agent Finish")
+            logger.info("Chat Agent Finish with action:", json.dumps(action))
             final_answer = action["final_answer"]
-            if action["final_search_document_arguments"]:
-                try:
-                    final_document = await TOOLS[action["search_documents"]](**action["final_search_document_arguments"])
-                except:
-                    final_document = []
             break
     
-    background_evaluation_agent.delay(question=message, document=final_document)
+    try:
+        background_evaluation_agent.delay(question=message, documents=final_document)
+    except Exception as e:
+        logger.error(f"Error in background evaluation agent: {e}")
 
     logger.info("agent chat stop")
     return {"final_answer": final_answer, "final_documents": final_document, "final_prompt": message, "token_usage_estimation": token_usage_estimation}
