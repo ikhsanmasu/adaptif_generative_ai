@@ -2,4 +2,10 @@ ollama
 fastapi
 uvicorn
 redis
+redis[hiredis]
 qdrant-client==1.16.2
+pdfplumber
+python-multipart
+aiofiles
+celery
+dotenv
