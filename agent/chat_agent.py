@@ -169,7 +169,7 @@ async def chat_agent(message, tenant, user_id, model) -> str:
     try:
         background_evaluation_agent.delay(question=message, documents=final_document)
     except Exception as e:
-        logger.error(f"Error in background evaluation agent: {e}")
+        logger.error(f"Error Whe publishing task Background Evaluation Agent: {e}")
 
     logger.info("agent chat stop")
     return {"final_answer": final_answer, "final_documents": final_document, "final_prompt": message, "token_usage_estimation": token_usage_estimation}
